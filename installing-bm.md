@@ -31,10 +31,13 @@ p4c
     mkdir build
     cd build
     cmake ..
+    make
+    sudo make install
     
 p4c eBPF
 --------
  
+If this is required, building the backend needs to be done before `cmake ..` is run.
 Install script is python3, so python3-pip will need to be installed. Python 3 is installed by default on 18.04.
 
 

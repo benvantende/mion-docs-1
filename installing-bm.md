@@ -64,10 +64,14 @@ p4c other
 
 Compile a P4 Application for BMV
 --------------------------------
+The following program tags all incoming packets with VLAN 102 and submits them to a specific port. Save the following as `vlan.p4`.
 
     /* -*- P4_16 -*- */
     #include <core.p4>
     #include <v1model.p4>
+
+
+    /* Headers */
 
     typedef bit<9>  egressSpec_t;
     typedef bit<48> macAddr_t;
@@ -79,26 +83,29 @@ Compile a P4 Application for BMV
         bit<16>   etherType;
     }
 
-    struct metadata {
+    header vlan_t {
+        bit<3>  pcp; // Prority code point
+        bit<1>  dei; // Drop eligibility indicator
+        bit<12> vid; // VLAN identifier
+        bit<16> etherType;
     }
 
     struct headers {
         ethernet_t ethernet;
+        vlan_t vlan;
+    }
+
+    struct metadata {
+        /* empty */
     }
 
 
-    struct mac_digest {
-        macAddr_t smac;
-        egressSpec_t ingress_port;
-    }
+    /* Parser */
 
-
-    /* Parser*/
-    
     parser MyParser(packet_in packet,
-                    out headers hdr,
-                    inout metadata meta,
-                    inout standard_metadata_t standard_metadata) {
+        out headers hdr,
+        inout metadata meta,
+        inout standard_metadata_t standard_metadata) {
 
         state start {
             transition parse_ethernet;
@@ -110,98 +117,46 @@ Compile a P4 Application for BMV
                 default : accept;
             }
         }
-
     }
+
 
     /* Checksum verification */
 
-    control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
-        apply {  }
+    control MyVerifyChecksum(inout headers hdr, inout metadata meta)
+    {
+        apply {}
     }
 
 
     /* Ingress processing */
 
     control MyIngress(inout headers hdr,
-                      inout metadata meta,
-                      inout standard_metadata_t standard_metadata) {
-
-        action drop() {
-            mark_to_drop(standard_metadata);
-        }
-
-        action mac_forward(egressSpec_t port) {
-            standard_metadata.egress_spec = port;
-        }
-
-        action mac_broadcast() {
-            standard_metadata.mcast_grp = 33;
-        }
-
-        action noop () { /* Nothing to do */ }
-
-        action send_digest() {
-            digest<mac_digest>(1, {
-                hdr.ethernet.srcAddr, 
-                standard_metadata.ingress_port
-            });
-        }
-
-
-        table smac_table {
-            key = {
-                hdr.ethernet.srcAddr: exact;
-            }
-            actions = {
-                send_digest;
-                noop;
-            }
-            default_action = send_digest();
-            size = 4096;
-            support_timeout = true;
-        }
-
-
-        table dmac_table {
-            key = {
-                hdr.ethernet.dstAddr: exact;
-            }
-            actions = {
-                mac_forward;
-                drop;
-            }
-            size = 1024;
-            default_action = drop;
-        }
-
-
+        inout metadata meta,
+        inout standard_metadata_t standard_metadata)
+    {
         apply {
-            if (hdr.ethernet.isValid()) {
-                smac_table.apply();
+            standard_metadata.egress_spec = 2;
 
-                if (hdr.ethernet.dstAddr == 0xffffffffffff) {
-                    mac_broadcast();
-                } 
-                else {
-                    dmac_table.apply();	
-                }
+            if (hdr.ethernet.isValid()){
+                bit<16> tmp_ether_type = hdr.ethernet.etherType;
+                hdr.ethernet.etherType = 0x8100;
+                hdr.vlan.setValid();
+                hdr.vlan.vid = 102;
+                hdr.vlan.etherType = tmp_ether_type;
             }
         }
     }
 
+
     /* Egress processing */
 
     control MyEgress(inout headers hdr,
-                     inout metadata meta,
-                     inout standard_metadata_t standard_metadata) {
-        action drop() {
-            mark_to_drop(standard_metadata);
-        }
-
+        inout metadata meta,
+        inout standard_metadata_t standard_metadata)
+    {
         apply {
-            // Prune multicast packet to ingress port to preventing loop
             if (standard_metadata.egress_port == standard_metadata.ingress_port) {
-                drop();
+                mark_to_drop(standard_metadata);
             }
         }
     }
@@ -224,10 +179,11 @@ Compile a P4 Application for BMV
                called
             */
             packet.emit(hdr.ethernet);
+            packet.emit(hdr.vlan);
         }
     }
 
-    /* Switch pipeline definition */
+    /* Switch definition */
 
     V1Switch(
         MyParser(),
@@ -236,9 +192,10 @@ Compile a P4 Application for BMV
         MyEgress(),
         MyComputeChecksum(),
         MyDeparser()
-    ) main;
+    ) main; 
 
 
+If you copy this file and run `p4c` against it (without arguments), it will be compiled for the BMv2 simple switch. This will produce a `vlan.json` file that can be passed to the simple switch for running.
 
 Virtual Ethernet Ports
 ----------------------
@@ -252,4 +209,20 @@ There should be no errors at this stage. To confirm that the ports have been add
 
 Virtual ethernet ports are created in pairs.
 
+
+Running BMv2
+------------
+
+Make sure simple switch has correct capabilities:
+
+     sudo setcap cap_net_raw+eip `which simple_switch`
+     
+The `simple_switch` application requires at a minimum the following:
+
+    simple_switch $interfaces $program
+
+An interface is added using the `-i` switch with the argument having the form `${idx}@${name}`. For our example, the complete command line would be:
+
+    simple_switch -i 0@veth1 -i 1@veth3 -i 2@veth5 -i 3@veth7 -i 4@veth9 -i 5@veth11 -i 6@veth13 -i 7@veth15 -i 8@veth17 vlan.json
+    
 

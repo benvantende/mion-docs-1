@@ -9,6 +9,50 @@ Notes:
 * `sudo setcap cap_net_raw+eip` This capability means that raw sockets can be used and that the application is able to bind to any adddress
 * 
 
+P4 Runtime
+----------
+
+    
+    sudo apt-get install libssl1.0-dev
+    git clone https://github.com/apache/thrift.git --depth 1 --branch 0.9.2
+    cd thrift
+    ./bootstrap.sh
+    ./configure CXXFLAGS='-g -O2' CFLAGS='-g -O2' # Flags optional
+
+> I already had the 'rake' gem installed for some other app and thrift requires a version less than 11.0,
+> and compilation would fail halfway through. Updating the gemspec to pull in the correct version got us
+> further however still eventually failed. To avoid this, just don't build the ruby bindings. While we're
+> at it, pretty sure we don't need PHP either:
+>
+>   ./configure CXXFLAGS='-g -O2' CFLAGS='-g -O2' --with-ruby=no --with-php=no
+
+
+
+    git clone https://github.com/google/protobuf.git
+    cd protobuf/
+    git checkout tags/v3.6.1
+    ./autogen.sh
+    ./configure
+    make
+    sudo make install
+    
+    pip install grpcio # do we need this??? or do we need to install from source???
+
+Optional. If BMv2 has been installed, headers and library might be in `/usr/local/`; you
+need to make sure they're added to the relevant paths.
+
+    export C_INCLUDE_PATH=${C_INCLUDE_PATH}:/usr/local/include
+    export CPLUS_INCLUDE_PATH=${CPLUS_INCLUDE_PATH}:/usr/local/include
+    export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib
+    
+    git clone https://github.com/p4lang/PI.git
+    cd PI
+    git submodule update --init --recursive
+    ./autogen.sh
+    ./configure --with-proto --with-bmv2
+    make
+    make check
+
 Behavioural Model
 -----------------
 
